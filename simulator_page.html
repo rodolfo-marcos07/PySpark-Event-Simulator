@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PySpark Event Simulator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9f9f9;
+      color: #333;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 30px;
+    }
+    .description {
+      font-size: 18px;
+      line-height: 1.6;
+      margin-bottom: 40px;
+      color: #555;
+    }
+    .section {
+      margin-bottom: 40px;
+    }
+    .section-title {
+      font-size: 24px;
+      margin-bottom: 15px;
+      color: #2c3e50;
+    }
+    .event-stream, .processing-result {
+      padding: 20px;
+      background-color: #eee;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      overflow-x: auto;
+      white-space: nowrap;
+      height: 120px;
+      display: flex;
+      align-items: center;
+    }
+    .event-box {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 55px;
+      height: 60px;
+      margin-right: 10px;
+      background-color: #5b9bd5;
+      color: white;
+      font-weight: bold;
+      border-radius: 4px;
+      font-size: 18px;
+      text-align: center;
+    }
+    .result-box {
+      display: inline-flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      width: 120px;
+      height: 100px;
+      margin-right: 10px;
+      background-color: #ed7d31;
+      color: white;
+      font-weight: bold;
+      border-radius: 4px;
+      font-size: 16px;
+      text-align: center;
+      padding: 5px;
+    }
+    .result-value {
+      font-size: 22px;
+      margin-bottom: 5px;
+    }
+    .result-window {
+      font-size: 10px;
+      overflow: visible;
+      text-overflow: ellipsis;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    .control-group {
+      margin-bottom: 15px;
+    }
+    .control-label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+    input, select {
+      padding: 12px 15px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 15px 30px;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .start-btn {
+      background-color: #78b13f;
+      color: white;
+    }
+    .stop-btn {
+      background-color: #e06666;
+      color: white;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 20px;
+    }
+    .event-frequency-control {
+      width: 200px;
+    }
+    .stop-btn-disabled {
+      background-color: #ccb0b0;
+      cursor: not-allowed;
+    }
+    .start-btn-disabled {
+      background-color: #c1d3ab;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="container">
+    <h1>Interactive Event Simulator</h1>
+    <p class="description">
+      This interactive event simulator lets you generate custom events and stream them
+      straight into a PySpark pipeline. Tweak the event frequency, choose your window size,
+      and watch live computations of sum, average, and more magic in motion. Perfect for
+      experimenting, learning, or just seeing data flow like a pro. Ready to spark some
+      insights?
+    </p>
+
+    <div class="section">
+      <h2 class="section-title">Eventstream</h2>
+      <div class="event-stream" ref="eventStream">
+        <div v-for="(event, index) in events" :key="index" class="event-box">
+          {{ event }}
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">PySpark processing result</h2>
+      <div class="processing-result" ref="processingResult">
+        <div v-for="(result, index) in results" :key="index" class="result-box">
+          <div class="result-value">{{ result.value }}</div>
+          <div class="result-window">{{ result.window }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-group event-frequency-control">
+        <label class="control-label">Event frequency (seconds):</label>
+        <input type="number" v-model.number="eventFrequency" min="1" max="10" @input="validateEventFrequency">
+      </div>
+    </div>
+
+    <div class="action-buttons">
+      <button class="stop-btn" @click="stopSimulation" :disabled="!isRunning" :class="{'stop-btn-disabled': !isRunning}">Stop</button>
+      <button class="start-btn" @click="startSimulation" :disabled="isRunning" :class="{'start-btn-disabled': isRunning}">Start</button>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, onMounted, onBeforeUnmount } = Vue;
+
+    createApp({
+      setup() {
+        const events = ref([]);
+        const results = ref([]);
+        const eventFrequency = ref(2);
+        const isRunning = ref(false);
+        const eventData = reactive([]);
+        const eventTimer = ref(null);
+        const resultTimer = ref(null);
+        const eventStream = ref(null);
+        const processingResult = ref(null);
+
+        const validateEventFrequency = () => {
+          if (eventFrequency.value < 1) eventFrequency.value = 1;
+          if (eventFrequency.value > 10) eventFrequency.value = 10;
+        };
+
+        const generateRandomEvent = () => {
+          const value = Math.floor(Math.random() * 101); // 0-100
+          events.value.push(value);
+          eventData.push({
+            value,
+            timestamp: Date.now()
+          });
+          
+          // Keep only the last 50 events visible
+          if (events.value.length > 50) {
+            events.value.shift();
+          }
+
+          // Scroll to the end of event stream
+          setTimeout(() => {
+            if (eventStream.value) {
+              eventStream.value.scrollLeft = eventStream.value.scrollWidth;
+            }
+          }, 0);
+
+          // Send event to API endpoint
+          sendEventToApi(value);
+        };
+
+        const sendEventToApi = (value) => {
+          // Get current date and time
+          const now = new Date();
+          
+          // Format the date and time as YYYY-mm-dd_HH-mm-ss
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          const hours = String(now.getHours()).padStart(2, '0');
+          const minutes = String(now.getMinutes()).padStart(2, '0');
+          const seconds = String(now.getSeconds()).padStart(2, '0');
+          
+          const formattedDateTime = `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+          
+          // Construct the URL with query parameters
+          const url = `http://localhost:8080/?event_time=${formattedDateTime}&event_value=${value}`;
+          
+          // Make the GET request
+          fetch(url)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+              }
+              console.log(`Event sent successfully: value=${value}, time=${formattedDateTime}`);
+              return response.text();
+            })
+            .then(data => {
+              console.log(`Server response: ${data}`);
+            })
+            .catch(error => {
+              console.error(`Failed to send event to API: ${error.message}`);
+            });
+        };
+
+        const processEvents = () => {
+          // Fetch data from the aggregation endpoint
+          fetch('http://localhost:8080/getAggregation')
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+              }
+              return response.text();
+            })
+            .then(text => {
+              if (!text.trim()) {
+                console.log('No data received from server');
+                return;
+              }
+              
+              // The response may contain multiple JSON objects, one per line
+              // Split by newlines and parse each line as JSON
+              const jsonLines = text.trim().split('\n');
+              results.value = []
+
+              // Parse all JSON lines into an array of data objects
+              const parsedData = [];
+              jsonLines.forEach(line => {
+                try {
+                  const data = JSON.parse(line);
+                  
+                  // Store the original window data and add parsed date for sorting
+                  const windowStart = new Date(data.window.start);
+                  const windowEnd = new Date(data.window.end);
+                  
+                  parsedData.push({
+                    value: data.value,
+                    windowStart: windowStart,
+                    windowEnd: windowEnd,
+                    windowText: `${windowStart.toLocaleTimeString()} - ${windowEnd.toLocaleTimeString()}`
+                  });
+                } catch (e) {
+                  console.error('Error parsing JSON line:', e);
+                }
+              });
+
+              // Sort by window end time, most recent first
+              parsedData.sort((a, b) => b.windowEnd - a.windowEnd);
+
+              // Clear current results and add sorted data
+              results.value = [];
+              parsedData.forEach(item => {
+                results.value.push({
+                  value: item.value,
+                  window: item.windowText
+                });
+                console.log(`Window: ${item.windowText}, Value: ${item.value}`);
+              });
+              
+              // Keep only the last 50 results visible
+              if (results.value.length > 50) {
+                results.value = results.value.slice(-50);
+              }
+              
+              // Scroll to the end of processing result
+              setTimeout(() => {
+                if (processingResult.value) {
+                  processingResult.value.scrollLeft = processingResult.value.scrollWidth;
+                }
+              }, 0);
+            })
+            .catch(error => {
+              console.error('Error fetching aggregation data:', error);
+            });
+        };
+
+        const startSimulation = () => {
+          if (isRunning.value) return;
+          
+          isRunning.value = true;
+          
+          // Start generating events
+          eventTimer.value = setInterval(() => {
+            generateRandomEvent();
+          }, eventFrequency.value * 1000);
+          
+          // Start fetching processing results every second
+          resultTimer.value = setInterval(() => {
+            processEvents();
+          }, 1000);
+        };
+
+        const stopSimulation = () => {
+          isRunning.value = false;
+          clearInterval(eventTimer.value);
+          clearInterval(resultTimer.value);
+        };
+
+        onBeforeUnmount(() => {
+          stopSimulation();
+        });
+
+        return {
+          events,
+          results,
+          eventFrequency,
+          isRunning,
+          eventStream,
+          processingResult,
+          validateEventFrequency,
+          startSimulation,
+          stopSimulation
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
