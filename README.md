@@ -33,8 +33,8 @@ Welcome to the **Interactive PySpark Event Simulator**, a hands‑on toolkit for
 
 1. **Clone the repo**  
    ```bash
-   git clone <your‑repo‑url>
-   cd <your‑repo‑dir>
+   git clone https://github.com/rodolfo-marcos07/PySpark-Event-Simulator.git
+   cd PySpark-Event-Simulator
 
 2. **Install Dependencies**
     ```bash
